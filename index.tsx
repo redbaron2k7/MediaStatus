@@ -71,6 +71,11 @@ const settings = definePluginSettings({
         description: "Show series name instead of episode title in status title",
         default: false
     },
+    preferSeriesCover: {
+        type: OptionType.BOOLEAN,
+        description: "Show series cover instead of episode thumbnail",
+        default: true
+    },
     showTimestamps: {
         type: OptionType.BOOLEAN,
         description: "Show elapsed/remaining time",
@@ -148,14 +153,19 @@ async function fetchJellyfinData(): Promise<MediaData | null> {
             }
         };
 
+        let imageUrl: string | undefined;
+        if (item.Type === "Episode" && item.SeriesId && settings.store.preferSeriesCover) {
+            imageUrl = `${settings.store.serverUrl}/Items/${item.SeriesId}/Images/Primary?api_key=${settings.store.apiKey}`;
+        } else if (item.ImageTags?.Primary) {
+            imageUrl = `${settings.store.serverUrl}/Items/${item.Id}/Images/Primary?api_key=${settings.store.apiKey}`;
+        }
+
         const baseData: MediaData = {
             title: item.Name,
             type: getMediaType(item.Type),
             progress: item.RunTimeTicks ? Math.round((playState.PositionTicks / item.RunTimeTicks) * 100) : undefined,
             isPaused: playState.IsPaused,
-            imageUrl: item.ImageTags?.Primary ?
-                `${settings.store.serverUrl}/Items/${item.Id}/Images/Primary?api_key=${settings.store.apiKey}` :
-                undefined,
+            imageUrl,
             duration: item.RunTimeTicks ? toMs(item.RunTimeTicks) : undefined,
             position: playState.PositionTicks ? toMs(playState.PositionTicks) : undefined,
             year: item.ProductionYear
@@ -219,9 +229,9 @@ async function fetchPlexData(): Promise<MediaData | null> {
             type: getMediaType(session.type),
             progress: session.duration ? Math.round((session.viewOffset / session.duration) * 100) : undefined,
             isPaused: session.Player.state !== "playing",
-            imageUrl: session.thumb ?
-                `${settings.store.serverUrl}${session.thumb}?X-Plex-Token=${settings.store.apiKey}` :
-                undefined,
+            imageUrl: session.thumb 
+                ? `${settings.store.preferSeriesCover && session.grandparentThumb ? session.grandparentThumb : session.thumb}?X-Plex-Token=${settings.store.apiKey}`
+                : undefined,
             duration: session.duration,
             position: session.viewOffset,
             year: session.year,
