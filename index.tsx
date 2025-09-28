@@ -4,12 +4,14 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+import * as DataStore from "@api/DataStore";
 import { definePluginSettings } from "@api/Settings";
 import { Link } from "@components/Link";
 import { Logger } from "@utils/Logger";
 import definePlugin, { OptionType } from "@utils/types";
+import { relaunch } from "@utils/native";
 import { findByPropsLazy } from "@webpack";
-import { ApplicationAssetUtils, FluxDispatcher, Forms } from "@webpack/common";
+import { ApplicationAssetUtils, FluxDispatcher, Forms, Alerts } from "@webpack/common";
 
 const DISCORD_APP_ID = "1333493119525720082";
 const logger = new Logger("MediaStatus");
@@ -47,7 +49,8 @@ const settings = definePluginSettings({
     serverUrl: {
         type: OptionType.STRING,
         description: "Your server's URL (include http:// or https://)",
-        placeholder: "https://your-server.com"
+        placeholder: "https://your-server.com",
+        restartNeeded: true
     },
     apiKey: {
         type: OptionType.STRING,
@@ -278,10 +281,30 @@ function getServerName(): string {
     return settings.store.serverType === ServiceType.JELLYFIN ? "Jellyfin" : "Plex";
 }
 
+export async function checkServerUrl() {
+    if (IS_WEB) return true;
+
+    if (await VencordNative.csp.isDomainAllowed(settings.store.serverUrl, ["connect-src"])) {
+        return true;
+    }
+
+    const res = await VencordNative.csp.requestAddOverride(settings.store.serverUrl, ["connect-src"], "MediaStatus");
+    if (res === "ok") {
+        Alerts.show({
+            title: "Jellyfin/Plex URL whitelisted",
+            body: `Your server URL has been added to the whitelist. Please restart the app for the changes to take effect.`,
+            confirmText: "Restart now",
+            cancelText: "Later!",
+            onConfirm: relaunch
+        });
+    }
+    return false;
+}
+
 export default definePlugin({
     name: "MediaStatus",
     description: "Show your Jellyfin/Plex media activity as Discord Rich Presence",
-    authors: [{ name: "redbaron2k7", id: 1142923640778797157n }],
+    authors: [{ name: "redbaron2k7", id: 1142923640778797157n }, { name: "zcraftelite", id: 926788037785047050n }],
     dependencies: ["UserSettingsAPI"],
     settings,
 
@@ -301,6 +324,16 @@ export default definePlugin({
     ),
 
     async start() {
+        let isServerWhitelisted = await checkServerUrl();
+        if (!isServerWhitelisted) {
+            Alerts.show({
+                title: "URL Whitelist",
+                body: `In order for the MediaStatus plugin to work, your server URL needs to be whitelisted.`,
+                confirmText: "Ok",
+                cancelText: "No thanks",
+                onConfirm: checkServerUrl,
+            });
+        }
         this.updatePresence();
         this.interval = setInterval(
             () => this.updatePresence(),
